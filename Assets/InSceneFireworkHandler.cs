@@ -2,13 +2,16 @@ using System.Collections;
 using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEditor;
+#if UNITY_EDITOR
+using UnityEditor.SceneManagement;
+#endif
 using UnityEngine;
 
 public class InSceneFireworkHandler : NetworkBehaviour
 {
     [HideInInspector]
     [SerializeField]
-    private GameObject m_SourcePrefab;
+    private GameObject TargetPrefab;
 
 #if UNITY_EDITOR
     /// <summary>
@@ -16,7 +19,11 @@ public class InSceneFireworkHandler : NetworkBehaviour
     /// </summary>
     private void OnValidate()
     {
-        m_SourcePrefab = PrefabUtility.GetCorrespondingObjectFromOriginalSource(gameObject);
+        var originalSource = PrefabUtility.GetCorrespondingObjectFromOriginalSource(gameObject);
+        if (originalSource != null)
+        {
+            TargetPrefab = originalSource;
+        }
     }
 #endif
 
@@ -90,18 +97,27 @@ public class InSceneFireworkHandler : NetworkBehaviour
     /// </remarks>
     private void Start()
     {
+        // Ingore if we are the original pefab or do not have a target prefab assigned
+        if (TargetPrefab == null)
+        {            
+            return;
+        }
+        // Get the instance's GlobalObjectIdHash value
+        var globalObjectIdHash = GetComponent<NetworkObject>().PrefabIdHash;
+        var targetGlobalObjectIdHash = TargetPrefab.GetComponent<NetworkObject>().PrefabIdHash;
         // Add the override on the client side (using singleton because the instance is not yet spawned)
-        if (m_SourcePrefab != null && !NetworkManager.Singleton.IsServer)
+        // Ignore this if we are the Server or we are the override target prefab (identify by GlobalObjecIdHash)
+        if (!NetworkManager.Singleton.IsServer && globalObjectIdHash != targetGlobalObjectIdHash)
         {
-            var instanceGlobalObjectIdHash = GetComponent<NetworkObject>().PrefabIdHash;
-            var networkPrefab = new NetworkPrefab()
-            {
-                SourceHashToOverride = instanceGlobalObjectIdHash,
-                OverridingTargetPrefab = m_SourcePrefab,
-                Prefab = gameObject,
-            };
             if (!NetworkManager.Singleton.NetworkConfig.Prefabs.Contains(gameObject))
             {
+                var networkPrefab = new NetworkPrefab()
+                {
+                    Prefab = gameObject,
+                    Override = NetworkPrefabOverride.Prefab, // Make sure we set the override to be of type "Prefab"
+                    SourcePrefabToOverride = gameObject,
+                    OverridingTargetPrefab = TargetPrefab,   // The prefab to spawn in place of the instance
+                };
                 NetworkManager.Singleton.NetworkConfig.Prefabs.Add(networkPrefab);
             }
         }

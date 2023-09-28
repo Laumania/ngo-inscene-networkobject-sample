@@ -6,7 +6,7 @@ using Unity.Netcode;
 public class NetworkManagerHelper : MonoBehaviour
 {
     public static NetworkManagerHelper Instance;
-
+    public NetworkManager NetworkManager;
 
     private void Start()
     {
@@ -15,7 +15,7 @@ public class NetworkManagerHelper : MonoBehaviour
 
     private void OnGUI()
     {
-        var networkManager = NetworkManager.Singleton;
+        var networkManager = NetworkManager;
         if (!networkManager.IsClient && !networkManager.IsServer)
         {
             GUILayout.BeginArea(new Rect(10, 10, 300, 800));
