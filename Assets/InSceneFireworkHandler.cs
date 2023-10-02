@@ -23,6 +23,12 @@ public class InSceneFireworkHandler : NetworkBehaviour
         if (originalSource != null)
         {
             TargetPrefab = originalSource;
+            // If this is a prefab instance
+            if (PrefabUtility.IsPartOfAnyPrefab(this))
+            {
+                // Mark the prefab instance as "dirty"
+                PrefabUtility.RecordPrefabInstancePropertyModifications(this);
+            }
         }
     }
 #endif
