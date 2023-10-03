@@ -22,6 +22,7 @@ public class NetworkManagerHelper : MonoBehaviour
             if (GUILayout.Button("Host"))
             {
                 networkManager.StartHost();
+                networkManager.SceneManager.SetClientSynchronizationMode(LoadSceneMode.Additive);
             }
 
             if (GUILayout.Button("Client"))

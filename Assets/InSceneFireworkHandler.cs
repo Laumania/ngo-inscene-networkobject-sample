@@ -1,17 +1,17 @@
-using System.Collections;
-using System.Collections.Generic;
 using Unity.Netcode;
 using UnityEditor;
-#if UNITY_EDITOR
-using UnityEditor.SceneManagement;
-#endif
 using UnityEngine;
 
 public class InSceneFireworkHandler : NetworkBehaviour
 {
+    /// <summary>
+    /// Store the GlobalObjectIdHash value to identify the target network prefab during runtime
+    /// </summary>
     [HideInInspector]
     [SerializeField]
-    private GameObject TargetPrefab;
+    private uint m_TargetGlobalObjectIdHash;
+
+    public bool EnableDebugLogging;
 
 #if UNITY_EDITOR
     /// <summary>
@@ -20,9 +20,11 @@ public class InSceneFireworkHandler : NetworkBehaviour
     private void OnValidate()
     {
         var originalSource = PrefabUtility.GetCorrespondingObjectFromOriginalSource(gameObject);
-        if (originalSource != null)
+        if (!EditorApplication.isPlayingOrWillChangePlaymode && !EditorApplication.isPlaying)
         {
-            TargetPrefab = originalSource;
+            var globalObjectIdHash = GetComponent<NetworkObject>().PrefabIdHash;
+            m_TargetGlobalObjectIdHash = originalSource.GetComponent<NetworkObject>().PrefabIdHash;
+            LogMessage($"[OnValidate] Local GID: {globalObjectIdHash} --> Target GID: {m_TargetGlobalObjectIdHash}");
             // If this is a prefab instance
             if (PrefabUtility.IsPartOfAnyPrefab(this))
             {
@@ -32,6 +34,24 @@ public class InSceneFireworkHandler : NetworkBehaviour
         }
     }
 #endif
+
+
+    private void LogMessage(string message, int displayTime = 30)
+    {
+        if (!EnableDebugLogging)
+        {
+            return;
+        }
+
+        if (NetworkManagerHelper.Instance != null)
+        {
+            NetworkManagerHelper.Instance.LogMessage(message, displayTime);
+        }
+        else
+        {
+            Debug.Log(message);
+        }
+    }
 
     /// <summary>
     /// Synchronize Firework's Unique Settings
@@ -54,7 +74,6 @@ public class InSceneFireworkHandler : NetworkBehaviour
             // Client would apply the unique firework configuration settings
             ApplyConfigurationSettings();
         }
-
 
         base.OnSynchronize(ref serializer);
     }
@@ -90,6 +109,25 @@ public class InSceneFireworkHandler : NetworkBehaviour
     private UniqueFireworkSettings m_UniqueFireworkSettings = new UniqueFireworkSettings();
 
     /// <summary>
+    /// Returns the target prefab's GameObject
+    /// </summary>
+    private GameObject GetTargetNetworkPrefab()
+    {
+        if (NetworkManager != null)
+        {
+            foreach(var prefab in NetworkManager.NetworkConfig.Prefabs.Prefabs)
+            {
+                var globalObjectIdHash = prefab.Prefab.GetComponent<NetworkObject>().PrefabIdHash;
+                if (globalObjectIdHash == m_TargetGlobalObjectIdHash)
+                {
+                    return prefab.Prefab;
+                }
+            }
+        }
+        return null;
+    }
+
+    /// <summary>
     /// Start is invoked during scene loading which happens prior to spawning.
     /// This is a good place to register your override entry for the in-scene
     /// placed NetworkObject's GlobalObjectIdHash value to the source prefab's
@@ -104,16 +142,22 @@ public class InSceneFireworkHandler : NetworkBehaviour
     private void Start()
     {
         // Ingore if we are the original pefab or do not have a target prefab assigned
-        if (TargetPrefab == null)
+        if (m_TargetGlobalObjectIdHash == 0 || NetworkManager.Singleton.IsServer)
         {
+            if (m_TargetGlobalObjectIdHash == 0)
+            {
+                LogMessage($"[GID NOT ASSIGNED] Target GID: {m_TargetGlobalObjectIdHash}!!!", 120);
+            }            
             return;
         }
+
         // Get the instance's GlobalObjectIdHash value
         var globalObjectIdHash = GetComponent<NetworkObject>().PrefabIdHash;
-        var targetGlobalObjectIdHash = TargetPrefab.GetComponent<NetworkObject>().PrefabIdHash;
+        LogMessage($"Local GID: {globalObjectIdHash} --> Target GID: {m_TargetGlobalObjectIdHash}", 30);
+
         // Add the override on the client side (using singleton because the instance is not yet spawned)
         // Ignore this if we are the Server or we are the override target prefab (identify by GlobalObjecIdHash)
-        if (!NetworkManager.Singleton.IsServer && globalObjectIdHash != targetGlobalObjectIdHash)
+        if (!NetworkManager.Singleton.IsServer && globalObjectIdHash != m_TargetGlobalObjectIdHash)
         {
             if (!NetworkManager.Singleton.NetworkConfig.Prefabs.Contains(gameObject))
             {
@@ -122,7 +166,7 @@ public class InSceneFireworkHandler : NetworkBehaviour
                     Prefab = gameObject,
                     Override = NetworkPrefabOverride.Prefab, // Make sure we set the override to be of type "Prefab"
                     SourcePrefabToOverride = gameObject,
-                    OverridingTargetPrefab = TargetPrefab,   // The prefab to spawn in place of the instance
+                    OverridingTargetPrefab = GetTargetNetworkPrefab(),   // We get the target prefab from the target prefab's GlobalObjectIdHash value
                 };
                 NetworkManager.Singleton.NetworkConfig.Prefabs.Add(networkPrefab);
             }
