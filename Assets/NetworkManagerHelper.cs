@@ -1,16 +1,73 @@
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.SceneManagement;
+#if UNITY_EDITOR
+using UnityEditor;
+#endif
 using Unity.Netcode;
 
 public class NetworkManagerHelper : MonoBehaviour
 {
     public static NetworkManagerHelper Instance;
 
+    [HideInInspector]
+    [SerializeField]
+    private string m_SceneNameToLoad = string.Empty;
+
+    private Scene m_LoadedScene;
+
+#if UNITY_EDITOR
+    public SceneAsset SceneToLoad;
+    private void OnValidate()
+    {
+        if (SceneToLoad != null)
+        {
+            m_SceneNameToLoad = SceneToLoad.name;
+        }
+    }
+#endif
+
+    private enum NetworkManagerModes
+    {
+        Client,
+        Host
+    }
+
+    private NetworkManagerModes m_NetworkManagerMode;
 
     private void Start()
     {
         Screen.SetResolution((int)(Screen.currentResolution.width * 0.40f), (int)(Screen.currentResolution.height * 0.40f), FullScreenMode.Windowed);
+    }
+
+    private void HandleSceneLoading()
+    {
+        if (m_SceneNameToLoad == string.Empty) 
+        {
+            return;
+        }
+
+        SceneManager.sceneLoaded += SceneManager_sceneLoaded;
+        SceneManager.LoadSceneAsync(m_SceneNameToLoad, LoadSceneMode.Additive);
+    }
+
+    private void SceneManager_sceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        SceneManager.sceneLoaded -= SceneManager_sceneLoaded;
+        m_LoadedScene = scene;
+        switch(m_NetworkManagerMode) 
+        { 
+            case NetworkManagerModes.Host: 
+                {
+                    NetworkManager.Singleton.StartHost();
+                    break;
+                }
+            case NetworkManagerModes.Client:
+                {
+                    NetworkManager.Singleton.StartClient();
+                    break;
+                }
+        }
     }
 
     private void OnGUI()
@@ -21,13 +78,18 @@ public class NetworkManagerHelper : MonoBehaviour
             GUILayout.BeginArea(new Rect(10, 10, 300, 800));
             if (GUILayout.Button("Host"))
             {
-                networkManager.StartHost();
-                networkManager.SceneManager.SetClientSynchronizationMode(LoadSceneMode.Additive);
+                m_NetworkManagerMode = NetworkManagerModes.Host;
+                HandleSceneLoading();
             }
 
             if (GUILayout.Button("Client"))
             {
-                networkManager.StartClient();
+                m_NetworkManagerMode = NetworkManagerModes.Client;
+                // Handle NetworkObject clean up in case the client side disconnects and the active scene 
+                // was not the same scene the in-scene NetworkObjects were originally placed within.
+                networkManager.OnClientStopped -= NetworkManager_OnClientStopped;
+                networkManager.OnClientStopped += NetworkManager_OnClientStopped;
+                HandleSceneLoading();
             }
             GUILayout.EndArea();
 
@@ -63,11 +125,34 @@ public class NetworkManagerHelper : MonoBehaviour
 
             if (GUILayout.Button("X"))
             {
+                
                 networkManager.Shutdown();
+
+                if (m_LoadedScene.IsValid() && m_LoadedScene.isLoaded)
+                {
+                    SceneManager.UnloadSceneAsync(m_LoadedScene);
+                }
             }
             GUILayout.EndArea();
         }
+    }
 
+    /// <summary>
+    /// Handles cleaning up NetworkObjects that were spawned in the active scene.
+    /// </summary>
+    /// <remarks>
+    /// This is only needed if the active scene is not the scene that held the in-scene
+    /// placed NetworkObjects. Alternately, you could make the In-SceneObjects scene the
+    /// active scene when it is loaded and upon unloading that scene, when the client 
+    /// disconnects on its side, the NetworkObjects would be destroyed.
+    /// </remarks>    
+    private void NetworkManager_OnClientStopped(bool obj)
+    {
+        var networkObjects = FindObjectsByType<NetworkObject>(FindObjectsSortMode.None);
+        foreach(var networkObject in networkObjects) 
+        {
+            Object.Destroy(networkObject.gameObject);
+        }
     }
 
     private void Update()
@@ -77,7 +162,7 @@ public class NetworkManagerHelper : MonoBehaviour
             return;
         }
 
-        for(int i = m_MessageLogs.Count-1; i >= 0; i--)
+        for (int i = m_MessageLogs.Count - 1; i >= 0; i--)
         {
             if (m_MessageLogs[i].ExpirationTime < Time.realtimeSinceStartup)
             {
