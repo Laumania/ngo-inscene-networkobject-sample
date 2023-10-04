@@ -71,6 +71,16 @@ public class NetworkManagerHelper : MonoBehaviour
 
     private void Update()
     {
+        if (Input.GetKeyUp(KeyCode.N))
+        {
+            ListNetworkManagerPrefabs();
+        }
+
+        if (Input.GetKeyUp(KeyCode.M))
+        {
+            ListNetworkObjects();
+        }
+
         if (m_MessageLogs.Count == 0)
         {
             return;
@@ -82,6 +92,35 @@ public class NetworkManagerHelper : MonoBehaviour
             {
                 m_MessageLogs.RemoveAt(i);
             }
+        }
+    }
+
+    public static void ListNetworkManagerPrefabs()
+    {
+        if (NetworkManager.Singleton != null)
+        {
+            foreach (var prefab in NetworkManager.Singleton.NetworkConfig.Prefabs.Prefabs)
+            {
+                var networkObject = prefab.Prefab.GetComponent<NetworkObject>();
+                var globalHashField = typeof(NetworkObject).GetField("GlobalObjectIdHash", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                var globalHashId = (uint)globalHashField.GetValue(networkObject);
+
+                //QuantumConsole.Instance.LogToConsole($"{prefab.Prefab.name} (GlobalId: '{globalHashId}')");
+                Debug.Log($"NetworkConfig Prefab GlobalId: '{globalHashId}' -> {prefab.Prefab.name}");
+            }
+        }
+    }
+
+    public static void ListNetworkObjects()
+    {
+        var networkObjects = GameObject.FindObjectsByType<NetworkObject>(FindObjectsSortMode.InstanceID);
+        foreach (var networkObject in networkObjects)
+        {
+            var globalHashField = typeof(NetworkObject).GetField("GlobalObjectIdHash", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+            var globalHashId = (uint)globalHashField.GetValue(networkObject);
+
+            //QuantumConsole.Instance.LogToConsole($"{prefab.Prefab.name} (GlobalId: '{globalHashId}')");
+            Debug.Log($"In-Scene GlobalId: '{globalHashId}' -> {networkObject.gameObject.name}", networkObject.gameObject);
         }
     }
 
